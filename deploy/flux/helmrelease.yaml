@@ -1,0 +1,39 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: olympus-service
+  namespace: olympus
+spec:
+  interval: 10m
+  url: https://github.com/vezril/olympus-service
+  ref:
+    tag: v0.1.0
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: olympus-service
+  namespace: olympus
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: deploy/charts/olympus-service
+      sourceRef:
+        kind: GitRepository
+        name: olympus-service
+        namespace: olympus
+  values:
+    image:
+      repository: calvinference/olympusservice
+      tag: "0.1.0"
+
+    # Internal only. olympus-ui reaches it at
+    # http://olympus-service.olympus.svc.cluster.local
+    ingress:
+      enabled: false
+
+    olympus:
+      domain: home.experimentalneutron.com
+      health:
+        timeout: 3s

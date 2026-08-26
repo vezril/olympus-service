@@ -1,0 +1,63 @@
+replicaCount: 1
+
+image:
+  # NOTE: the Docker Hub account is `calvinference`, NOT the GitHub org.
+  repository: calvinference/olympusservice
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+# This service is INTERNAL: only olympus-ui's BFF talks to it. It gets no ingress
+# by default and should not need one — exposing it would put the registry and the
+# in-cluster probe targets on the network for no gain.
+ingress:
+  enabled: false
+  # Load-bearing empty string, same as olympus-ui: the template omits the field
+  # entirely when empty, because "" is RFC-1123-invalid and k8s rejects the object.
+  className: ""
+  annotations: {}
+  hosts: []
+  clusterIssuer: ""
+  tlsSecretName: ""
+
+olympus:
+  domain: home.experimentalneutron.com
+  health:
+    timeout: 3s
+  # Override the whole registry here when it drifts from the image default.
+  # Rendered into a ConfigMap and layered over application.conf.
+  consoles: []
+
+extraEnv: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

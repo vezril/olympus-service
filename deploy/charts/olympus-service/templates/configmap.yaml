@@ -1,0 +1,19 @@
+{{- if .Values.olympus.consoles }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "olympus-service.fullname" . }}-registry
+  labels:
+    {{- include "olympus-service.labels" . | nindent 4 }}
+data:
+  # Layered OVER the image's application.conf via -Dconfig.file, so this file
+  # must include the defaults it does not intend to drop.
+  override.conf: |
+    include classpath("application.conf")
+
+    olympus {
+      domain = {{ .Values.olympus.domain | quote }}
+      health.timeout = {{ .Values.olympus.health.timeout | quote }}
+      consoles = {{ toJson .Values.olympus.consoles }}
+    }
+{{- end }}

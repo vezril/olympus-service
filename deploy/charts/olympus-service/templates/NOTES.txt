@@ -1,0 +1,18 @@
+olympus-service is deployed as {{ include "olympus-service.fullname" . }}.
+
+Image:   {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+Service: {{ include "olympus-service.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Point olympus-ui at it:
+  OLYMPUS_SERVICE_URL=http://{{ include "olympus-service.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Endpoints:
+  GET /health           this service's own liveness (what the k8s probe hits)
+  GET /consoles         the registry
+  GET /health/consoles  the aggregated fan-out the portal renders
+
+{{- if .Values.ingress.enabled }}
+
+WARNING: an ingress is enabled. This service is internal — only olympus-ui's BFF
+should reach it. Exposing it publishes the registry and the in-cluster probe targets.
+{{- end }}

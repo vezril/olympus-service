@@ -1,0 +1,158 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  guard:
+    name: tag guards
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.secrets.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: parse version
+        id: version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "FATAL: '$tag' is not vX.Y.Z" >&2
+            exit 1
+          fi
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: tag must be an ancestor of main
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=0
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "FATAL: ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not an ancestor of main" >&2
+            exit 1
+          fi
+          echo "ok: on main"
+
+      - name: chart version matches the tag
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          chart_version=$(grep -E '^version:' deploy/charts/olympus-service/Chart.yaml | awk '{print $2}')
+          app_version=$(grep -E '^appVersion:' deploy/charts/olympus-service/Chart.yaml | awk '{print $2}' | tr -d '"')
+          if [[ "$chart_version" != "$version" || "$app_version" != "$version" ]]; then
+            echo "FATAL: tag $version vs chart $chart_version / appVersion $app_version" >&2
+            exit 1
+          fi
+          echo "ok: chart pinned to $version"
+
+      - name: are Docker Hub secrets present?
+        id: secrets
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [[ -n "$DOCKERHUB_USERNAME" && -n "$DOCKERHUB_TOKEN" ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::DOCKERHUB_* secrets absent — skipping the image publish."
+          fi
+
+  publish:
+    name: build · push
+    needs: guard
+    if: needs.guard.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: semver immutability — refuse to overwrite a published tag
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Docker Hub account is `calvinference`, NOT the GitHub org name.
+          url="https://hub.docker.com/v2/repositories/calvinference/olympusservice/tags/${VERSION}"
+          code=$(curl -sS -o /dev/null -w "%{http_code}" "$url")
+          if [[ "$code" == "200" ]]; then
+            echo "FATAL: calvinference/olympusservice:${VERSION} already exists. Versions are immutable — cut a new one." >&2
+            exit 1
+          fi
+          echo "ok: ${VERSION} is unpublished (HTTP $code)"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+
+      - uses: sbt/setup-sbt@v1
+
+      - name: stage the docker context
+        run: sbt -batch "Docker/stage"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: target/docker/stage
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            calvinference/olympusservice:${{ needs.guard.outputs.version }}
+            calvinference/olympusservice:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: github release
+    needs: [guard, publish]
+    if: always() && needs.guard.result == 'success' && needs.publish.result != 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.guard.outputs.version }}
+          PUBLISHED: ${{ needs.guard.outputs.publish }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$PUBLISHED" == "true" ]]; then
+            image_line="Image: \`calvinference/olympusservice:${VERSION}\`"
+          else
+            image_line="_No image published - DOCKERHUB_* secrets were not configured._"
+          fi
+
+          {
+            echo "$image_line"
+            echo
+            echo "Chart: \`deploy/charts/olympus-service\` @ ${VERSION}"
+            echo
+            echo "Internal service - only olympus-ui's BFF talks to it. Point the UI at"
+            echo "it with OLYMPUS_SERVICE_URL. Deploy is manual (no Flux on k3s 1.21):"
+            echo "\`helm upgrade\` from the TAGGED chart with the mirrored values file in"
+            echo "codex \`apps/olympus/\`. Never a bare \`--set\`."
+          } > release-notes.md
+
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --notes-file release-notes.md

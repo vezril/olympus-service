@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [development, main]
+  push:
+    branches: [development]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: scalafmt · compile · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # sbt-dynver derives the version from tags; a shallow clone yields
+          # "0.0.0-<sha>" and the release guard would compare against nonsense.
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+
+      - uses: sbt/setup-sbt@v1
+
+      - name: green gate
+        run: sbt -batch scalafmtCheckAll compile test
+
+  chart:
+    name: helm lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - run: helm lint deploy/charts/olympus-service
+
+      - name: ingress omits ingressClassName when className is empty
+        run: |
+          set -euo pipefail
+          rendered=$(helm template olympus-service deploy/charts/olympus-service \
+            --set ingress.enabled=true \
+            --set 'ingress.hosts[0].host=olympus-service.internal' \
+            --set 'ingress.hosts[0].paths[0].path=/' \
+            --set 'ingress.hosts[0].paths[0].pathType=Prefix')
+          if grep -q "ingressClassName" <<<"$rendered"; then
+            echo "FATAL: ingressClassName rendered despite an empty className" >&2
+            exit 1
+          fi
+          echo "ok: field omitted"
+
+  image:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+
+      - uses: sbt/setup-sbt@v1
+
+      # Stage only — proves the image assembles without pushing anything.
+      - name: stage the docker context
+        run: sbt -batch "Docker/stage"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: build the staged image
+        run: docker build -t olympusservice:ci target/docker/stage
+
+      - name: it must actually start and answer /health
+        # The launcher is a bash script and the base is alpine; a missing bash
+        # exits 127 at runtime and no amount of "it built" would have caught it.
+        run: |
+          set -euo pipefail
+          docker run -d --name ci -p 8080:8080 olympusservice:ci
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:8080/health >/dev/null; then
+              echo "ok: answered after ${i}s"
+              curl -s http://127.0.0.1:8080/health
+              docker rm -f ci >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "FATAL: never answered /health" >&2
+          docker logs ci >&2
+          exit 1

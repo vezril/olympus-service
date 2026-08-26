@@ -43,20 +43,34 @@ Names: `olympus | dionysus | hermes | apollo | artemis | demeter`.home.experimen
   Traefik NodePort answers). Managed declaratively via the existing ansible flow
   (`network/pfsense/`). Every LAN device — phones included — resolves without hosts files
   (LAN DHCP already hands out pfSense as DNS).
-- **Tailnet path** (away from home), one of two — Calvin's pick:
-  1. **Tailscale split-DNS**: admin console → DNS → add `home.experimentalneutron.com` with
-     nameserver `192.168.1.1`. Requires mimir to advertise the `192.168.1.0/24` subnet route
-     (checked during rollout). Keeps all records private.
-  2. **Public wildcard**: a single `*.home.experimentalneutron.com A 100.107.133.54` record at
-     the DNS provider. Works on every tailscale-running device anywhere, zero pfSense/tailnet
-     config; publishes a (harmless, unroutable-to-outsiders) 100.x IP publicly. The existing
-     public `mimir.experimentalneutron.com → 192.168.1.70` record shows this pattern in use.
+- **Tailnet path** (away from home): **Tailscale split-DNS — decided 2026-08-26.**
+  Admin console → DNS → add `home.experimentalneutron.com` with nameserver `192.168.1.1`.
+  The rejected alternative was a public `*.home.experimentalneutron.com A 100.107.133.54`
+  record: zero tailnet config, but it publishes the tailnet IP and adds a second place where
+  these names are defined.
+
+  Two things checked on 2026-08-26 that the rollout depends on:
+
+  1. **The subnet route is NOT advertised yet — this blocks split-DNS.** `tailscale status`
+     shows mimir with `PrimaryRoutes: None`; its `0.0.0.0/0` in AllowedIPs is the *exit node*
+     offering, not a subnet route. Split-DNS points tailnet devices at `192.168.1.1`, which
+     they cannot reach without `192.168.1.0/24` being advertised **and approved**. Do this
+     first or every name fails to resolve off-LAN.
+
+  2. **`*.experimentalneutron.com` is already a public wildcard → `51.79.68.202`** (an OVH
+     host; zone served by registrar-servers.com). Every name under it resolves there today,
+     including `olympus.home.experimentalneutron.com` and names that do not exist. Split-DNS
+     overrides this *for tailnet devices only*. So "keeps all records private" is true of the
+     new records, but the catch-all already answers publicly for anything else — worth
+     deciding separately whether that wildcard should stay.
 - `.tailscale` hosts entries stay working during migration; retire them at phase 3.
 
 ## Phases
 
-1. **DNS foundation** ◄ in progress — pfSense overrides via ansible + Calvin's tailnet-path
-   pick. New names live alongside `.tailscale`; nothing breaks.
+1. **DNS foundation** ◄ in progress — LAN half is **done**: every console name is declared
+   in codex `network/pfsense/vlans.yml` under `dns_host_overrides` → `192.168.1.70`.
+   Tailnet half is **decided (split-DNS) but blocked** on the subnet route above.
+   New names live alongside `.tailscale`; nothing breaks.
 2. **Authelia** — deploy (ns `authelia`; file backend, one user, TOTP optional), Traefik
    `Middleware` (forwardAuth) CRD, protect **hermes-ui** as the pilot.
 3. **Roll out** — middleware on all UI ingresses; ingress hosts move to the new names;

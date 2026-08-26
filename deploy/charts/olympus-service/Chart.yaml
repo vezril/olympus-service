@@ -2,8 +2,8 @@ apiVersion: v2
 name: olympus-service
 description: Olympus service — the console registry and health aggregation behind the portal.
 type: application
-version: 0.1.1
-appVersion: "0.1.1"
+version: 0.1.2
+appVersion: "0.1.2"
 home: https://github.com/vezril/olympus-service
 sources:
   - https://github.com/vezril/olympus-service

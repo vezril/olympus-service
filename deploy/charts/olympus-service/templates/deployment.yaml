@@ -46,6 +46,8 @@ spec:
               value: {{ .Values.olympus.domain | quote }}
             - name: OLYMPUS_HEALTH_TIMEOUT
               value: {{ .Values.olympus.health.timeout | quote }}
+            - name: OLYMPUS_CONSTELLATION_SOURCE
+              value: {{ .Values.olympus.constellation.source | default (printf "%s/%s" .Values.olympus.constellation.mountPath .Values.olympus.constellation.key) | quote }}
             {{- if .Values.olympus.consoles }}
             - name: JAVA_OPTS
               value: "-Dconfig.file=/etc/olympus/override.conf"
@@ -74,7 +76,12 @@ spec:
               mountPath: /tmp
             {{- if .Values.olympus.consoles }}
             - name: registry
-              mountPath: /etc/olympus
+              mountPath: /etc/olympus-registry
+              readOnly: true
+            {{- end }}
+            {{- if and .Values.olympus.constellation.configMapName (not .Values.olympus.constellation.source) }}
+            - name: constellation
+              mountPath: {{ .Values.olympus.constellation.mountPath }}
               readOnly: true
             {{- end }}
       volumes:
@@ -84,6 +91,15 @@ spec:
         - name: registry
           configMap:
             name: {{ include "olympus-service.fullname" . }}-registry
+        {{- end }}
+        {{- if and .Values.olympus.constellation.configMapName (not .Values.olympus.constellation.source) }}
+        - name: constellation
+          configMap:
+            name: {{ .Values.olympus.constellation.configMapName }}
+            # optional: codex owns this ConfigMap. If it has not been applied yet the
+            # pod must still start — /health stays green and /constellation reports
+            # the manifest is missing.
+            optional: true
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

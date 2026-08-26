@@ -1,7 +1,12 @@
 package com.experimentalneutron.olympus
 
 import com.experimentalneutron.olympus.api.Routes
-import com.experimentalneutron.olympus.application.{HealthChecker, Registry}
+import com.experimentalneutron.olympus.application.{
+  Constellation,
+  ConstellationProvider,
+  HealthChecker,
+  Registry
+}
 import com.typesafe.config.ConfigFactory
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
@@ -32,7 +37,16 @@ object Main:
 
     val version = Option(getClass.getPackage.getImplementationVersion).getOrElse("dev")
     val checker = HealthChecker(Http(), timeout)
-    val routes = Routes(consoles, checker, version).routes
+
+    // file today (a mounted ConfigMap — codex is private and the pods cannot read
+    // it); Iris once the contracts live in the vault. Config, not code.
+    val constellation = ConstellationProvider(
+      Constellation.sourceFrom(config.getString("olympus.constellation.source")),
+      Http(),
+      timeout
+    )
+
+    val routes = Routes(consoles, checker, constellation, version).routes
 
     val host = config.getString("olympus.http.host")
     val port = config.getInt("olympus.http.port")

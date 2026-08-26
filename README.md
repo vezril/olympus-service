@@ -143,8 +143,10 @@ bug cannot ship.
 
 ## Chart and deploy
 
-Chart at [`deploy/charts/olympus-service`](deploy/charts/olympus-service),
-reference manifests in [`deploy/flux/`](deploy/flux). **No ingress by default and
+Chart at [`deploy/charts/olympus-service`](deploy/charts/olympus-service).
+The authoritative record of what is deployed is codex `apps/olympus/` — there are
+deliberately no Flux manifests here, because a second copy of the deploy values
+that nothing keeps honest is how they drift. **No ingress by default and
 it should stay that way** — only olympus-ui's BFF talks to this service, and
 exposing it would publish the registry and every in-cluster probe target.
 

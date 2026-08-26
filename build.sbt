@@ -37,6 +37,9 @@ lazy val root = (project in file("."))
       "io.circe"         %% "circe-core"            % circeVersion,
       "io.circe"         %% "circe-generic"         % circeVersion,
       "io.circe"         %% "circe-parser"          % circeVersion,
+      // constellation.yaml is YAML; snakeyaml parses it and we re-encode as JSON
+      // so the browser and the BFF never need a YAML parser.
+      "org.yaml"          % "snakeyaml"             % "2.3",
       // test
       "org.apache.pekko" %% "pekko-http-testkit"    % pekkoHttpVersion % Test,
       "org.apache.pekko" %% "pekko-actor-testkit-typed" % pekkoVersion % Test,

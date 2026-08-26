@@ -30,6 +30,22 @@ ingress:
 
 olympus:
   domain: home.experimentalneutron.com
+
+  # codex's status-of-record manifest, rendered by the Olympus board.
+  #
+  # The ConfigMap is OWNED BY CODEX (generated from constellation.yaml and
+  # re-applied whenever it changes) — this chart mounts it, never creates it. The
+  # mount is optional on purpose: a missing manifest must degrade to a board that
+  # says so, not a service that will not start.
+  #
+  # Set `source` to an http(s) URL to fetch instead of mounting — that is the Iris
+  # path once the contracts live in the Obsidian vault
+  # (proposed: Atlas/Olympus/Contracts/constellation.yaml). It takes precedence.
+  constellation:
+    configMapName: constellation-manifest
+    key: constellation.yaml
+    mountPath: /etc/olympus
+    source: ''
   health:
     timeout: 3s
   # Override the whole registry here when it drifts from the image default.

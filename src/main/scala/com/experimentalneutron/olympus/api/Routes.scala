@@ -1,6 +1,6 @@
 package com.experimentalneutron.olympus.api
 
-import com.experimentalneutron.olympus.application.ConsoleHealth
+import com.experimentalneutron.olympus.application.{ConsoleHealth, ConstellationSource}
 import com.experimentalneutron.olympus.domain.ConsoleEntry
 import io.circe.Json
 import io.circe.syntax.*
@@ -16,7 +16,12 @@ import org.apache.pekko.http.scaladsl.server.Route
  * GET /health this service's own liveness — what the k8s probe hits GET /consoles the registry GET
  * /health/consoles the aggregated fan-out the portal renders
  */
-final class Routes(consoles: List[ConsoleEntry], checker: ConsoleHealth, version: String):
+final class Routes(
+    consoles: List[ConsoleEntry],
+    checker: ConsoleHealth,
+    constellation: ConstellationSource,
+    version: String
+):
 
   import JsonSupport.given
 
@@ -50,6 +55,16 @@ final class Routes(consoles: List[ConsoleEntry], checker: ConsoleHealth, version
       path("consoles") {
         get {
           complete(consoles)
+        }
+      },
+      path("constellation") {
+        get {
+          // Relayed as-is. This service does NOT own the manifest and never
+          // rewrites it: the board must render what codex published, or the
+          // board becomes a second source of truth.
+          respondWithHeader(`Cache-Control`(`no-store`)) {
+            complete(constellation.fetch())
+          }
         }
       },
       pathSingleSlash {

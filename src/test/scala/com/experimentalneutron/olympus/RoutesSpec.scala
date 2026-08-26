@@ -1,8 +1,9 @@
 package com.experimentalneutron.olympus
 
 import com.experimentalneutron.olympus.api.Routes
-import com.experimentalneutron.olympus.application.ConsoleHealth
+import com.experimentalneutron.olympus.application.{ConsoleHealth, ConstellationSource}
 import com.experimentalneutron.olympus.domain.*
+import io.circe.Json
 import io.circe.parser.parse
 import org.apache.pekko.http.scaladsl.model.{ContentTypes, StatusCodes}
 import org.apache.pekko.http.scaladsl.testkit.ScalatestRouteTest
@@ -55,7 +56,19 @@ final class RoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
         )
       )
 
-  private val routes = Routes(consoles, stubHealth, "1.2.3").routes
+  private val stubConstellation = new ConstellationSource:
+    override def fetch(): Future[Json] =
+      Future.successful(
+        Json.obj(
+          "version" -> Json.fromInt(1),
+          "lifecycle" -> Json.arr(Json.fromString("live"), Json.fromString("building")),
+          "services" -> Json.arr(
+            Json.obj("id" -> Json.fromString("hermes"), "status" -> Json.fromString("live"))
+          )
+        )
+      )
+
+  private val routes = Routes(consoles, stubHealth, stubConstellation, "1.2.3").routes
 
   "GET /health" should {
     "answer with this service's own liveness" in {
@@ -117,6 +130,26 @@ final class RoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
     "not be shadowed by /health" in {
       Get("/health/consoles") ~> routes ~> check {
         responseAs[String] should include("results")
+      }
+    }
+  }
+
+  "GET /constellation" should {
+    "relay codex's manifest as-is and forbid caching" in {
+      Get("/constellation") ~> routes ~> check {
+        status shouldBe StatusCodes.OK
+        contentType shouldBe ContentTypes.`application/json`
+        header("Cache-Control").map(_.value) shouldBe Some("no-store")
+
+        val c = parse(responseAs[String]).toOption.get.hcursor
+        c.get[Int]("version").toOption shouldBe Some(1)
+        c.downField("services").downArray.get[String]("id").toOption shouldBe Some("hermes")
+      }
+    }
+
+    "not be shadowed by /consoles" in {
+      Get("/consoles") ~> routes ~> check {
+        responseAs[String] should not include "lifecycle"
       }
     }
   }

@@ -25,6 +25,7 @@ final class RoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
       accent = "oklch(0.8 0.25 145)",
       accentAlt = None,
       status = ConsoleStatus.Live,
+      port = 80,
       healthUrl = "http://hermes-ui.hermes.svc.cluster.local/"
     ),
     ConsoleEntry(
@@ -37,6 +38,7 @@ final class RoutesSpec extends AnyWordSpec with Matchers with ScalatestRouteTest
       accent = "oklch(0.78 0.1 25)",
       accentAlt = None,
       status = ConsoleStatus.Planned,
+      port = 80,
       healthUrl = "http://hera-ui.hera.svc.cluster.local/"
     )
   )

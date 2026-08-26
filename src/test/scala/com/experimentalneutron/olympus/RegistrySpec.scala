@@ -23,8 +23,29 @@ final class RegistrySpec extends AnyWordSpec with Matchers:
 
     "load the shipped registry" in {
       val entries = Registry.load(ConfigFactory.load())
-      entries.map(_.id) should contain allOf ("dionysus", "hermes", "apollo", "artemis", "demeter")
+      entries.map(_.id) should contain allOf (
+        "dionysus",
+        "hermes",
+        "apollo",
+        "artemis",
+        "demeter",
+        "hephaestus"
+      )
       entries.count(_.status == ConsoleStatus.Planned) shouldBe 3
+    }
+
+    "ship probe targets that match the live cluster, not the god's name" in {
+      // These were guessed as <god>-ui.<god> and were wrong for four of five
+      // consoles — the portal reported everything Down. Verified against
+      // `kubectl get svc` 2026-08-26; update here when a console moves.
+      val byId = Registry.load(ConfigFactory.load()).map(e => e.id -> e.healthUrl).toMap
+
+      byId("dionysus") shouldBe "http://dionysus-planner.default.svc.cluster.local:3000/"
+      byId("hermes") shouldBe "http://hermes-hermes.hermes-ui.svc.cluster.local:80/"
+      byId("apollo") shouldBe "http://apollo.apollo-ui.svc.cluster.local:80/"
+      byId("artemis") shouldBe "http://artemis-ui-artemis-ui.artemis-ui.svc.cluster.local:80/"
+      byId("demeter") shouldBe "http://demeter-ui.demeter.svc.cluster.local:3000/"
+      byId("hephaestus") shouldBe "http://hephaestus-ui.hephaestus-ui.svc.cluster.local:80/"
     }
 
     "derive href from the id and domain" in {
@@ -32,9 +53,20 @@ final class RegistrySpec extends AnyWordSpec with Matchers:
       entry.href shouldBe "https://hermes.home.experimentalneutron.com"
     }
 
-    "default the probe to GET / on the in-cluster Service" in {
+    "default the probe to GET / on the in-cluster Service, port included" in {
       val entry = Registry.load(configOf(hermes)).head
-      entry.healthUrl shouldBe "http://hermes-ui.hermes.svc.cluster.local/"
+      entry.healthUrl shouldBe "http://hermes-ui.hermes.svc.cluster.local:80/"
+      entry.port shouldBe 80
+    }
+
+    "carry a non-80 port into the default probe" in {
+      val onThreeThousand =
+        """{ id = "demeter", name = "Demeter", blurb = "Yields.",
+             namespace = "demeter", service = "demeter-ui", port = 3000,
+             accent = "x", status = "live" }"""
+      val entry = Registry.load(configOf(onThreeThousand)).head
+      entry.port shouldBe 3000
+      entry.healthUrl shouldBe "http://demeter-ui.demeter.svc.cluster.local:3000/"
     }
 
     "prefer an explicit health-url" in {
@@ -53,7 +85,7 @@ final class RegistrySpec extends AnyWordSpec with Matchers:
              namespace = "hermes", service = "hermes-ui",
              accent = "x", status = "live", health-url = "  " }"""
       Registry.load(configOf(blank)).head.healthUrl shouldBe
-        "http://hermes-ui.hermes.svc.cluster.local/"
+        "http://hermes-ui.hermes.svc.cluster.local:80/"
     }
 
     "fail loudly on a duplicate id" in {

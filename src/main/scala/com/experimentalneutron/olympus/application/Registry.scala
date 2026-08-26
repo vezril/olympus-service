@@ -41,6 +41,7 @@ object Registry:
       if c.hasPath(path) then Option(c.getString(path)).map(_.trim).filter(_.nonEmpty) else None
 
     val id = required("id")
+    val port = if c.hasPath("port") then c.getInt("port") else 80
     val status = ConsoleStatus
       .parse(required("status"))
       .fold(msg => throw LoadFailure(s"olympus.consoles[$index] ($id): $msg"), identity)
@@ -55,6 +56,11 @@ object Registry:
       accent = required("accent"),
       accentAlt = optional("accent-alt"),
       status = status,
+      port = port,
+      // Port is explicit in the default: omitting it silently means 80, which
+      // is how a console on 3000 ends up reported Down forever.
       healthUrl = optional("health-url")
-        .getOrElse(s"http://${required("service")}.${required("namespace")}.svc.cluster.local/")
+        .getOrElse(
+          s"http://${required("service")}.${required("namespace")}.svc.cluster.local:$port/"
+        )
     )

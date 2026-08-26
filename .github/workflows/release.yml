@@ -33,7 +33,9 @@ jobs:
       - name: tag must be an ancestor of main
         run: |
           set -euo pipefail
-          git fetch origin main --depth=0
+          # No --depth here: checkout already fetched full history (fetch-depth: 0),
+          # and `--depth=0` is rejected outright ("depth 0 is not a positive number").
+          git fetch origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "FATAL: ${GITHUB_REF_NAME} (${GITHUB_SHA}) is not an ancestor of main" >&2
             exit 1

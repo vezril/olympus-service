@@ -1,6 +1,9 @@
 # Access gateway — one front door, basic auth (design)
 
-**Date:** 2026-08-25 · **Status:** approved by Calvin; phase 1 in progress
+**Date:** 2026-08-25 · **Updated:** 2026-08-26 · **Status:** approved by Calvin.
+Phase 1 in progress (Tailscale going onto the router); phases 2 and 4 built — Authelia
+is deployed but gates nothing until phase 1 lands, and the portal shipped as a bespoke
+service+UI pair rather than Homepage.
 **Decides** the question flagged in `access-model.md` (old `.home`/WireGuard plan vs deployed
 tailnet): the answer is **real subdomains of `experimentalneutron.com` over both paths**, with
 auth added at the ingress edge.
@@ -47,15 +50,35 @@ Names: `olympus | dionysus | hermes | apollo | artemis | demeter`.home.experimen
   Admin console → DNS → add `home.experimentalneutron.com` with nameserver `192.168.1.1`.
   The rejected alternative was a public `*.home.experimentalneutron.com A 100.107.133.54`
   record: zero tailnet config, but it publishes the tailnet IP and adds a second place where
-  these names are defined.
+  these names are defined. Reconsidered 2026-08-26 when the mimir route turned out to be
+  unreachable: it needs no subnet route, no console DNS and no shell, and a more specific
+  wildcard cleanly overrides the existing catch-all. It stays rejected only because Tailscale
+  on the router solves the same problem without publishing the service names — the IP is
+  harmless (CGNAT, unroutable to outsiders), the *names* are the leak. If the router path ever
+  fails, this is the fallback and it is a good one.
 
   Two things checked on 2026-08-26 that the rollout depends on:
 
-  1. **The subnet route is NOT advertised yet — this blocks split-DNS.** `tailscale status`
-     shows mimir with `PrimaryRoutes: None`; its `0.0.0.0/0` in AllowedIPs is the *exit node*
-     offering, not a subnet route. Split-DNS points tailnet devices at `192.168.1.1`, which
-     they cannot reach without `192.168.1.0/24` being advertised **and approved**. Do this
-     first or every name fails to resolve off-LAN.
+  1. **The subnet route carrier is the ROUTER (odin), not mimir — revised 2026-08-26.**
+
+     Split-DNS points tailnet devices at `192.168.1.1`, which they cannot reach until
+     `192.168.1.0/24` is advertised **and approved**. The first plan put that on mimir. It
+     cannot go there: mimir's Tailscale is the QNAP QPKG (1.40.0), whose web UI exposes only
+     exit-node advertising — no route controls — and the NAS refuses key-based SSH, so there is
+     no CLI to reach either. `tailscale status` confirms `PrimaryRoutes: None`; the `0.0.0.0/0`
+     in its AllowedIPs is the exit-node offering, not a subnet route.
+
+     **Install Tailscale on pfSense instead** (System → Package Manager → Tailscale; VPN →
+     Tailscale → advertise `192.168.1.0/24`; approve in the admin console). This is better than
+     the original plan rather than a workaround: it puts the tailnet node on the machine that
+     already IS the resolver, so the Unbound host overrides declared in codex
+     `network/pfsense/vlans.yml` become reachable from the tailnet with nothing else moving. It
+     also makes the whole LAN reachable by name — proxmox, home-assistant, radarr — instead of
+     just mimir, and leaves mimir's missing route UI irrelevant.
+
+     Two cautions: accepting routes is per-client (iOS uses them automatically; macOS and Linux
+     need `--accept-routes`), and this adds a package to the box everything depends on, so take
+     a `config.xml` snapshot first.
 
   2. **`*.experimentalneutron.com` is already a public wildcard → `51.79.68.202`** (an OVH
      host; zone served by registrar-servers.com). Every name under it resolves there today,
@@ -69,13 +92,32 @@ Names: `olympus | dionysus | hermes | apollo | artemis | demeter`.home.experimen
 
 1. **DNS foundation** ◄ in progress — LAN half is **done**: every console name is declared
    in codex `network/pfsense/vlans.yml` under `dns_host_overrides` → `192.168.1.70`.
-   Tailnet half is **decided (split-DNS) but blocked** on the subnet route above.
+   Tailnet half is **decided (split-DNS, route carried by pfSense)** and in progress.
    New names live alongside `.tailscale`; nothing breaks.
-2. **Authelia** — deploy (ns `authelia`; file backend, one user, TOTP optional), Traefik
-   `Middleware` (forwardAuth) CRD, protect **hermes-ui** as the pilot.
+
+   Why this phase matters more than it looks: `*.tailscale` is not DNS at all — those are
+   per-machine `/etc/hosts` entries (`nslookup olympus.tailscale` → NXDOMAIN). **No
+   constellation UI resolves on a phone today**, tailnet membership notwithstanding, because
+   iOS has no editable hosts file. That affects all eight consoles equally, and this phase is
+   the single fix for every one of them.
+2. **Authelia** — **deployed 2026-08-26, protecting nothing yet (on purpose).** Authelia
+   4.39.0 in ns `authelia`, file backend, sqlite on a PVC, and the Traefik forwardAuth
+   `Middleware` applied but referenced by no ingress. codex `apps/authelia/`.
+
+   It cannot gate anything until phase 1 lands, and that is not a guess — the running pod
+   was asked: a forwarded host of `hermes.home.experimentalneutron.com` gets `302` to the
+   auth portal, `hermes.tailscale` gets `400`, refused. The session cookie needs a real
+   parent domain and `.tailscale` is a single-label pseudo-TLD.
+
+   Outstanding on Calvin: the user password hash (`authelia-users` ships a placeholder — it
+   must not pass through a chat log). Then protect **hermes-ui** as the pilot.
 3. **Roll out** — middleware on all UI ingresses; ingress hosts move to the new names;
    retire hosts-file entries.
-4. **Olympus portal** — Homepage deployment behind the gate, tiles for every console + health.
+4. **Olympus portal** — **done 2026-08-26, and NOT Homepage.** Built as a bespoke pair
+   instead: `olympus-service` owns the console registry and health fan-out, `olympus-ui` is
+   the portal. Live at `olympus.tailscale:61642`, god marks on the tiles, and a read-only
+   constellation board at `/board` rendered from codex's `constellation.yaml`. Behind the
+   gate once phase 3 attaches the middleware.
 5. *(later)* Wildcard TLS via DNS-01 (pays off the parked QuObjects/tailnet cert debt properly)
    and per-app OIDC when multi-user arrives.
 

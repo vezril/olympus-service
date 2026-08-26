@@ -67,6 +67,7 @@ final class HealthCheckerSpec
       accent = "x",
       accentAlt = None,
       status = status,
+      port = 80,
       healthUrl = s"http://127.0.0.1:$port/$path"
     )
 

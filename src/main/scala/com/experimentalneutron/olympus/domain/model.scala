@@ -11,6 +11,8 @@ final case class ConsoleEntry(
     accent: String,
     accentAlt: Option[String],
     status: ConsoleStatus,
+    /** Service port. Not every console's Service is on 80. */
+    port: Int,
     /** In-cluster probe target. Defaults to GET / on the console's Service. */
     healthUrl: String
 )

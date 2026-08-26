@@ -1,7 +1,0 @@
-# Reference manifests mirroring the codex `apps/olympus/` shape.
-# There is no Flux on this cluster (k3s 1.21 — deliberately deferred); the real
-# deploy is a manual `helm upgrade -f <mirrored-values>` from the TAGGED chart.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: olympus
